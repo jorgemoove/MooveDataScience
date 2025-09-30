@@ -1,0 +1,43 @@
+trigger:
+- main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  azureServiceConnection: 'Conexion-AzureML-DataScience'
+  resourceGroup: 'RscgrpMooveCars'
+  workspaceName: 'DataScience'
+  computeName: 'cpu-cluster'
+  vmSize: 'STANDARD_DS3_V2'
+  minNodes: '0'
+  maxNodes: '2'
+  idleTimeSec: '120'
+
+steps:
+- task: AzureCLI@2
+  displayName: "Crear/verificar compute y lanzar job (PROD)"
+  inputs:
+    azureSubscription: $(azureServiceConnection)
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: |
+      set -euo pipefail
+      az config set extension.use_dynamic_install=yes_without_prompt
+      az extension add -n ml -y || az extension update -n ml || true
+
+      echo "Workspace:"
+      az ml workspace show -g $(resourceGroup) -w $(workspaceName) --only-show-errors
+
+      echo "Compute:"
+      if ! az ml compute show -g $(resourceGroup) -w $(workspaceName) -n $(computeName) >/dev/null 2>&1; then
+        az ml compute create -g $(resourceGroup) -w $(workspaceName) \
+          --name $(computeName) --type amlcompute --size $(vmSize) \
+          --min-instances $(minNodes) --max-instances $(maxNodes) \
+          --idle-time-before-scale-down $(idleTimeSec)
+      fi
+
+      echo "Job:"
+      az ml job create -f jobs/train.yml -g $(resourceGroup) -w $(workspaceName) --stream
+
+      echo "Listo"
