@@ -5,39 +5,42 @@ pool:
   vmImage: ubuntu-latest
 
 variables:
-  azureServiceConnection: 'Conexion-AzureML-DataScience'
+  azureServiceConnection: 'Conexion-AzureML-PurebaML'
   resourceGroup: 'RscgrpMooveCars'
   workspaceName: 'DataScience'
-  computeName: 'cpu-cluster'
-  vmSize: 'STANDARD_DS3_V2'
-  minNodes: '0'
-  maxNodes: '2'
-  idleTimeSec: '120'
 
 steps:
 - task: AzureCLI@2
-  displayName: "Crear/verificar compute y lanzar job (PROD)"
+  displayName: "Diagnóstico conexión Azure ML"
   inputs:
     azureSubscription: $(azureServiceConnection)
     scriptType: bash
     scriptLocation: inlineScript
     inlineScript: |
       set -euo pipefail
+      set -x
+
+      echo "CLI version:"
+      az version
+
+      # Asegura auto-instalación de extensiones y la 'ml'
       az config set extension.use_dynamic_install=yes_without_prompt
       az extension add -n ml -y || az extension update -n ml || true
 
-      echo "Workspace:"
-      az ml workspace show -g $(resourceGroup) -w $(workspaceName) --only-show-errors
+      echo "Cuenta activa / contexto de login:"
+      az account show --query "{subscription:id, user:user, tenant:tenantId}"
 
-      echo "Compute:"
-      if ! az ml compute show -g $(resourceGroup) -w $(workspaceName) -n $(computeName) >/dev/null 2>&1; then
-        az ml compute create -g $(resourceGroup) -w $(workspaceName) \
-          --name $(computeName) --type amlcompute --size $(vmSize) \
-          --min-instances $(minNodes) --max-instances $(maxNodes) \
-          --idle-time-before-scale-down $(idleTimeSec)
-      fi
+      echo "Listado rápido de RG para validar scope:"
+      az group list --query "[].name"
 
-      echo "Job:"
-      az ml job create -f jobs/train.yml -g $(resourceGroup) -w $(workspaceName) --stream
+      echo "Mostrar workspace AML:"
+      az ml workspace show \
+        --name "$(workspaceName)" \
+        --resource-group "$(resourceGroup)" \
+        --only-show-errors \
+        --query "{name:name, location:location, id:id}"
 
-      echo "Listo"
+      echo "Conexión OK"
+
+  env:
+    AZURE_EXTENSION_USE_DYNAMIC_INSTALL: yes_without_prompt
